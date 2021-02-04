@@ -7,9 +7,7 @@ mutable struct DynamicTable
     max_size::Int
 
     # 4096 is the initial value of SETTINGS_HEADER_TABLE_SIZE (rfc7540)
-    function DynamicTable(max_size::Int=4096)
-        new(Vector{HeaderBinary}(), 0, max_size)
-    end
+    DynamicTable(max_size::Int=4096) = new(HeaderBinary[], 0, max_size)
 end
 
 function consolidate_table!(table::DynamicTable)
@@ -24,8 +22,10 @@ function add_header!(table::DynamicTable, name::Vector{UInt8}, value::Vector{UIn
     pushfirst!(table.table, (name, value))
     consolidate_table!(table)
 end
-add_header!(table::DynamicTable, header::HeaderBinary) = add_header!(table, header[1], header[2])
-add_header!(table::DynamicTable, header::Header) = add_header!(table, bytearr(header[1]), bytearr(header[2]))
+add_header!(table::DynamicTable, header::HeaderBinary) =
+    add_header!(table, header[1], header[2])
+add_header!(table::DynamicTable, header::Header) =
+    add_header!(table, bytearr(header[1]), bytearr(header[2]))
 
 function set_max_table_size!(table::DynamicTable, size::Int)
     table.max_size = size
@@ -96,19 +96,15 @@ const STATIC_TABLE = [
      (bytearr("www-authenticate"              ), bytearr(""             ))
  ]
 
+@noinline bounderr() =
+    throw(DecodeError("Index out of bound."))
+@noinline indexerr() =
+    throw(DecodeError("Index greater than sum of both static and dynamic tables."))
+
 function get_header(table::DynamicTable, index)
     # IETF's table indexing is 1-based.
-    if index <= length(STATIC_TABLE)
-        return STATIC_TABLE[index]
-    else
-        if index > length(STATIC_TABLE) + table.max_size
-            throw(DecodeError("Index greater than sum of both static and dynamic tables."))
-        else
-            if index > length(STATIC_TABLE) + length(table.table)
-                throw(DecodeError("Index out of bound."))
-            else
-                return table.table[index - length(STATIC_TABLE)]
-            end
-        end
-    end
+    index <= length(STATIC_TABLE) && return STATIC_TABLE[index]
+    (index > length(STATIC_TABLE) + table.max_size) && indexerr()
+    (index > length(STATIC_TABLE) + length(table.table)) && bounderr()
+    return table.table[index - length(STATIC_TABLE)]
 end
